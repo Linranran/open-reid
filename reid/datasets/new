@@ -1,0 +1,187 @@
+from __future__ import print_function, absolute_import
+import os.path as osp
+import numpy as np
+from ..utils.data import Dataset
+from ..utils.osutils import mkdir_if_missing
+from ..utils.serialization import write_json
+
+class New(Dataset):
+    def __init__(self, root, split_id=0, num_val=0.3, download=False):
+        super(New, self).__init__(root, split_id=split_id)
+
+        if download:
+            self.download()
+
+        if not self._check_integrity():
+            raise RuntimeError("Dataset not found or corrupted. " +
+                               "You can use download=True to download it.")
+
+        self.load(num_val)
+
+    def download(self):
+        if self._check_integrity():
+            print("Files already downloaded and verified")
+            return
+
+        import re
+        import hashlib
+        import shutil
+        from glob import glob
+        from zipfile import ZipFile
+
+        raw_dir = osp.join(self.root, 'raw')
+        mkdir_if_missing(raw_dir)
+
+        import os
+#.................................................
+
+        images_dir = osp.join(self.root, 'images')
+        mkdir_if_missing(images_dir)
+        exdir3 = osp.join(raw_dir, 'Duke')
+        identities = []
+        all_pids = {}
+
+        def register(subdir, pattern=re.compile(r'([-\d]+)_c(\d)')):
+            fpaths = sorted(glob(osp.join(exdir3, subdir, '*.jpg')))
+            pids = set()
+            for fpath in fpaths:
+                fname = osp.basename(fpath)
+                pid, cam = map(int, pattern.search(fname).groups())
+                assert 1 <= cam <= 8
+                cam -= 1
+                if pid not in all_pids:
+                    all_pids[pid] = len(all_pids)
+                pid = all_pids[pid]
+                pids.add(pid)
+                if pid >= len(identities):
+                    assert pid == len(identities)
+                    identities.append([[] for _ in range(8)])  # 8 camera views
+                fname = ('{:08d}_{:02d}_{:04d}.jpg'
+                         .format(pid, cam, len(identities[pid][cam])))
+                identities[pid][cam].append(fname)
+                shutil.copy(fpath, osp.join(images_dir, fname))
+            return identities
+
+        trainval_pids = register('bounding_box_train')
+        gallery_pids = register('bounding_box_test')
+        query_pids = register('query')
+        #assert query_pids <= gallery_pids
+        #assert trainval_pids.isdisjoint(gallery_pids)
+        # ...............................................
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#...........make  mars
+        exdir = osp.join(raw_dir, 'MARS')
+        #trdir = osp.join(raw_dir, 'MARS/bbox_train')
+        #tedir = osp.join(raw_dir, 'MARS/bbox_test')
+        images_dir = osp.join(self.root, 'images')
+        mkdir_if_missing(images_dir)
+
+        exdir1= os.listdir(exdir)
+
+
+        #identities = []
+        for file_dir in [exdir+'/' + a for a in exdir1]:
+
+
+            sdd = os.listdir(file_dir)
+            for file_fold in sdd:
+                ddd = os.listdir(file_dir+'/'+file_fold)
+
+                fpaths = [file_dir+'/'+file_fold+'/' + x for x in ddd]
+                L=[]
+
+                #fpaths = sorted(glob(osp.join(file_dir+'/'+file_fold+'/', ddd)))
+                for i, fpath in  enumerate( fpaths):
+                    if i%10==0 :
+                        fname = osp.basename(fpath)
+                        L.append(fname)
+                        shutil.copy(fpath, osp.join(images_dir, fname))
+
+                identities.append([L])
+
+
+#.........................................................................................................................
+        exdir2 = osp.join(raw_dir, 'PedestrianRetrieval_vali')
+
+        import shutil
+        import operator
+        import xml.etree.ElementTree as ET
+        tree = ET.ElementTree(file='/home/lin/re_id/open-reid-master_1/examples/data/PedestrianRetrieval_vali/raw/vali.xml')
+
+        a = []
+        for elem in tree.iter(tag='Item'):
+            a.append(elem.attrib)
+        sorted_a = sorted(a, key=operator.itemgetter('pedestrianID'))
+
+        bb = []
+        pedestrianID1 = '100004'
+        for i, j in enumerate(sorted_a):
+            # for key in j[0]:
+            imageName = j['imageName']
+            pedestrianID = j['pedestrianID']
+            aa =exdir2+'/'+ imageName
+
+            # for imageName1 in files:
+            #     if [imageName1] == aa:
+            #         break
+
+            if pedestrianID1 == pedestrianID:
+                pedestrianID1 = pedestrianID
+                # m = m + 1
+                # fname = '{:08d}_{:02d}_{:04d}.jpg'.format(l, 0, m)
+
+
+                bb.append(imageName)
+            else:
+                identities.append([bb])
+                pedestrianID1 = pedestrianID
+                # l = l + 1
+                # m = 0
+                # fname = '{:08d}_{:02d}_{:04d}.jpg'.format(l, 0, m)
+                bb = []
+                bb.append(imageName)
+            shutil.copy(aa, osp.join(images_dir, imageName))
+                # identities.append(images)
+            #images.append(bb)
+
+
+
+
+
+
+
+
+
+#........................................................
+
+
+        meta = {'name': 'New', 'shot': 'multiple', 'num_cameras': 8,
+                'identities': identities}
+        write_json(meta, osp.join(self.root, 'meta.json'))
+
+        num = len(identities)
+        pids = np.random.permutation(num).tolist()
+        trainval_pids = sorted(pids[:num // 2])
+        test_pids = sorted(pids[num // 2:])
+        splits = [{'trainval': trainval_pids,
+                 'query': test_pids,
+                'gallery': test_pids}]
+        write_json(splits, osp.join(self.root, 'splits.json'))
